@@ -3,6 +3,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useToast } from '../contexts/ToastContext';
 import { 
   Users, 
   Calendar, 
@@ -14,20 +15,64 @@ import {
   Search,
   PlusCircle,
   Stethoscope,
-  TrendingUp
+  TrendingUp,
+  Trash2,
+  Plus,
+  FileText
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export function DoctorDashboard() {
   const { user } = useAuth();
   const { socket } = useSocket();
+  const { showToast } = useToast();
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedule, setSchedule] = useState<any[]>([]);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
+  const [medicalData, setMedicalData] = useState({ diagnosis: '', prescription: '' });
+
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  const fetchSchedule = () => {
+    fetch(`/api/doctors/schedule/${user?.id}`)
+      .then(res => res.json())
+      .then(data => setSchedule(data));
+  };
 
   useEffect(() => {
     fetch(`/api/appointments?userId=${user?.id}&role=doctor`)
       .then(res => res.json())
       .then(data => setAppointments(data));
+    fetchSchedule();
   }, [user]);
+
+  const handleUpdateSchedule = async (day: string, slots: any[]) => {
+    setIsSavingSchedule(true);
+    try {
+      const res = await fetch('/api/doctors/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doctor_id: user?.id,
+          day_of_week: day,
+          slots: slots
+        })
+      });
+      if (res.ok) {
+        showToast(`Schedule for ${day} updated`, 'success');
+        fetchSchedule();
+      } else {
+        showToast('Failed to update schedule', 'error');
+      }
+    } catch (err) {
+      showToast('Connection error', 'error');
+      console.error(err);
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
 
   useEffect(() => {
     if (!socket) return;
@@ -43,15 +88,43 @@ export function DoctorDashboard() {
 
   const handleStatusUpdate = async (id: number, status: string) => {
     try {
-      await fetch(`/api/appointments/${id}`, {
+      const res = await fetch(`/api/appointments/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       });
-      setAppointments(prev => prev.map(appt => 
-        appt.id === id ? { ...appt, status } : appt
-      ));
+      if (res.ok) {
+        showToast(`Appointment ${status}`, 'success');
+        setAppointments(prev => prev.map(appt => 
+          appt.id === id ? { ...appt, status } : appt
+        ));
+      } else {
+        showToast('Failed to update status', 'error');
+      }
     } catch (err) {
+      showToast('Connection error', 'error');
+      console.error(err);
+    }
+  };
+
+  const handleSaveMedicalRecords = async () => {
+    if (!selectedAppointment) return;
+    try {
+      const res = await fetch(`/api/appointments/${selectedAppointment.id}/medical`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(medicalData)
+      });
+      if (res.ok) {
+        showToast('Medical records updated', 'success');
+        handleStatusUpdate(selectedAppointment.id, 'completed');
+        setSelectedAppointment(null);
+        setMedicalData({ diagnosis: '', prescription: '' });
+      } else {
+        showToast('Failed to save records', 'error');
+      }
+    } catch (err) {
+      showToast('Connection error', 'error');
       console.error(err);
     }
   };
@@ -70,13 +143,143 @@ export function DoctorDashboard() {
           <p className="text-slate-500 dark:text-slate-400">You have 18 appointments scheduled for today. 4 are priority cases.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline">Manage Schedule</Button>
+          <Button variant="outline" onClick={() => setShowScheduleModal(true)}>Manage Schedule</Button>
           <Button>
             <PlusCircle className="mr-2" size={18} />
             Add Patient
           </Button>
         </div>
       </div>
+
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm">
+          <Card className="w-full max-w-2xl p-8 space-y-6 max-h-[90vh] overflow-y-auto" title="Manage Weekly Schedule" description="Set specific time slots or block off days entirely.">
+            <div className="space-y-6">
+              {days.map((day) => {
+                const daySlots = schedule.filter(s => s.day_of_week === day);
+                const isBlocked = daySlots.length === 0 || daySlots.every(s => !s.is_available);
+                
+                return (
+                  <div key={day} className="space-y-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                    <div className="flex items-center justify-between">
+                      <div className="font-black text-slate-900 dark:text-white uppercase tracking-wider text-sm">{day}</div>
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={!isBlocked}
+                            onChange={(e) => {
+                              if (!e.target.checked) {
+                                handleUpdateSchedule(day, []);
+                              } else if (daySlots.length === 0) {
+                                handleUpdateSchedule(day, [{ start_time: '09:00', end_time: '17:00', is_available: 1 }]);
+                              }
+                            }}
+                            className="rounded border-slate-300 text-primary focus:ring-primary"
+                          />
+                          <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Available</span>
+                        </label>
+                        {!isBlocked && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => {
+                              const newSlots = [...daySlots, { start_time: '09:00', end_time: '17:00', is_available: 1 }];
+                              handleUpdateSchedule(day, newSlots);
+                            }}
+                          >
+                            <Plus size={14} className="mr-1" /> Add Slot
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {!isBlocked && (
+                      <div className="space-y-2">
+                        {daySlots.map((slot, idx) => (
+                          <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                            <input 
+                              type="time" 
+                              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary"
+                              value={slot.start_time}
+                              onChange={(e) => {
+                                const newSlots = [...daySlots];
+                                newSlots[idx].start_time = e.target.value;
+                                setSchedule(prev => prev.map(s => s.id === slot.id ? { ...s, start_time: e.target.value } : s));
+                              }}
+                              onBlur={() => handleUpdateSchedule(day, daySlots)}
+                            />
+                            <span className="text-slate-400 text-xs">to</span>
+                            <input 
+                              type="time" 
+                              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-primary"
+                              value={slot.end_time}
+                              onChange={(e) => {
+                                const newSlots = [...daySlots];
+                                newSlots[idx].end_time = e.target.value;
+                                setSchedule(prev => prev.map(s => s.id === slot.id ? { ...s, end_time: e.target.value } : s));
+                              }}
+                              onBlur={() => handleUpdateSchedule(day, daySlots)}
+                            />
+                            <button 
+                              onClick={() => {
+                                const newSlots = daySlots.filter((_, i) => i !== idx);
+                                handleUpdateSchedule(day, newSlots);
+                              }}
+                              className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isBlocked && (
+                      <p className="text-[10px] font-bold text-slate-400 italic">Day blocked - no available slots</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+              <Button onClick={() => setShowScheduleModal(false)}>Close Management</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Medical Records Modal */}
+      {selectedAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm">
+          <Card className="w-full max-w-lg p-8 space-y-6" title="Complete Appointment" description={`Enter medical details for ${selectedAppointment.patient_name}`}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Diagnosis</label>
+                <textarea 
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary h-24 resize-none"
+                  placeholder="Enter patient diagnosis..."
+                  value={medicalData.diagnosis}
+                  onChange={(e) => setMedicalData({ ...medicalData, diagnosis: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Prescription</label>
+                <textarea 
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary h-24 resize-none"
+                  placeholder="Enter prescribed medications..."
+                  value={medicalData.prescription}
+                  onChange={(e) => setMedicalData({ ...medicalData, prescription: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="outline" onClick={() => setSelectedAppointment(null)}>Cancel</Button>
+              <Button onClick={handleSaveMedicalRecords}>Save & Complete</Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat) => (
@@ -174,12 +377,19 @@ export function DoctorDashboard() {
                             size="sm" 
                             variant="secondary" 
                             className="h-8 px-2"
-                            onClick={() => handleStatusUpdate(appt.id, 'completed')}
+                            onClick={() => setSelectedAppointment(appt)}
                           >
                             Complete
                           </Button>
                         )}
-                        <Button size="sm" variant="outline" className="h-8 px-2">View Records</Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-8 px-2"
+                          onClick={() => showToast('Medical records view coming soon', 'info')}
+                        >
+                          View Records
+                        </Button>
                         <button className="text-slate-400 hover:text-primary transition-colors">
                           <MoreVertical size={18} />
                         </button>

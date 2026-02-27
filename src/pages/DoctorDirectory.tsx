@@ -8,6 +8,8 @@ import { cn } from '../lib/utils';
 export function DoctorDirectory() {
   const [doctors, setDoctors] = useState<any[]>([]);
   const [filter, setFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('rating');
 
   useEffect(() => {
     fetch('/api/doctors')
@@ -17,9 +19,18 @@ export function DoctorDirectory() {
 
   const departments = ['All', 'Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 'Dermatology'];
 
-  const filteredDoctors = filter === 'All' 
-    ? doctors 
-    : doctors.filter(d => d.specialization?.includes(filter));
+  const filteredDoctors = doctors
+    .filter(d => {
+      const matchesDept = filter === 'All' || d.specialization?.includes(filter);
+      const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                           d.specialization.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesDept && matchesSearch;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'rating') return b.rating - a.rating;
+      if (sortBy === 'experience') return b.experience - a.experience;
+      return 0;
+    });
 
   return (
     <div className="space-y-8">
@@ -28,15 +39,32 @@ export function DoctorDirectory() {
           <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">Doctors Directory</h1>
           <p className="text-slate-500 dark:text-slate-400 text-lg">Browse our world-class medical specialists and book your consultation.</p>
         </div>
-        <Button size="lg" className="rounded-xl">
-          Register New Doctor
-        </Button>
+        <div className="flex gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Search doctors..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary outline-none w-64"
+            />
+          </div>
+          <select 
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary outline-none"
+          >
+            <option value="rating">Top Rated</option>
+            <option value="experience">Most Experienced</option>
+          </select>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shadow-sm">
         <div className="flex items-center gap-2 pr-4 border-r border-slate-200 dark:border-slate-800">
           <Filter className="text-slate-400" size={18} />
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Filters:</span>
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Departments:</span>
         </div>
         <div className="flex flex-wrap gap-2">
           {departments.map(dept => (

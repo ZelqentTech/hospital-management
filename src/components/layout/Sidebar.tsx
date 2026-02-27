@@ -12,7 +12,8 @@ import {
   Stethoscope,
   BarChart3,
   Search,
-  FileText
+  FileText,
+  Phone
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -38,7 +39,15 @@ export function Sidebar() {
     { label: 'Profile', icon: User, path: '/profile' },
   ];
 
-  const links = user?.role === 'patient' ? patientLinks : user?.role === 'doctor' ? doctorLinks : adminLinks;
+  const commonLinks = [
+    { label: 'About Us', icon: Users, path: '/about' },
+    { label: 'Contact', icon: Phone, path: '/contact' },
+  ];
+
+  const links = [
+    ...(user?.role === 'patient' ? patientLinks : user?.role === 'doctor' ? doctorLinks : adminLinks),
+    ...commonLinks
+  ];
 
   return (
     <aside className="w-64 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hidden md:flex flex-col">

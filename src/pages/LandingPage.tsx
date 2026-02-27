@@ -32,9 +32,9 @@ export function LandingPage() {
         
         <div className="hidden md:flex items-center gap-8 text-sm font-bold text-slate-600 dark:text-slate-400">
           <a href="#services" className="hover:text-primary transition-colors">Services</a>
-          <a href="#doctors" className="hover:text-primary transition-colors">Specialists</a>
-          <a href="#about" className="hover:text-primary transition-colors">About Us</a>
-          <a href="#contact" className="hover:text-primary transition-colors">Contact</a>
+          <Link to="/doctors" className="hover:text-primary transition-colors">Specialists</Link>
+          <Link to="/about" className="hover:text-primary transition-colors">About Us</Link>
+          <Link to="/contact" className="hover:text-primary transition-colors">Contact</Link>
         </div>
 
         <div className="flex items-center gap-4">
@@ -192,10 +192,10 @@ export function LandingPage() {
           <div>
             <h5 className="font-black uppercase tracking-widest text-xs mb-8 text-slate-500">Quick Links</h5>
             <ul className="space-y-4 text-sm font-bold text-slate-400">
-              <li><a href="#" className="hover:text-white transition-colors">Find a Doctor</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Services</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">About Us</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+              <li><Link to="/doctors" className="hover:text-white transition-colors">Find a Doctor</Link></li>
+              <li><a href="#services" className="hover:text-white transition-colors">Services</a></li>
+              <li><Link to="/about" className="hover:text-white transition-colors">About Us</Link></li>
+              <li><Link to="/contact" className="hover:text-white transition-colors">Contact</Link></li>
             </ul>
           </div>
 

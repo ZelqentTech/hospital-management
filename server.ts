@@ -23,7 +23,11 @@ db.exec(`
     specialization TEXT,
     experience INTEGER,
     rating REAL DEFAULT 0,
-    reviews_count INTEGER DEFAULT 0
+    reviews_count INTEGER DEFAULT 0,
+    gender TEXT,
+    age INTEGER,
+    phone TEXT,
+    address TEXT
   );
 
   CREATE TABLE IF NOT EXISTS appointments (
@@ -35,6 +39,8 @@ db.exec(`
     status TEXT CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')) DEFAULT 'pending',
     type TEXT,
     fee REAL,
+    diagnosis TEXT,
+    prescription TEXT,
     FOREIGN KEY(patient_id) REFERENCES users(id),
     FOREIGN KEY(doctor_id) REFERENCES users(id)
   );
@@ -108,17 +114,94 @@ async function startServer() {
   // API Routes
   app.post("/api/login", (req, res) => {
     const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ? AND password = ?").get(email, password) as any;
+    const user = db.prepare("SELECT id, name, email, role, avatar, specialization, experience, rating, reviews_count, gender, age, phone, address FROM users WHERE email = ? AND password = ?").get(email, password) as any;
     if (user) {
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      res.json(user);
     } else {
       res.status(401).json({ error: "Invalid credentials" });
     }
   });
 
+  app.post("/api/register", (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+      const info = db.prepare("INSERT INTO users (name, email, role, password) VALUES (?, ?, 'patient', ?)")
+        .run(name, email, password);
+      const newUser = db.prepare("SELECT id, name, email, role, avatar, phone, address FROM users WHERE id = ?").get(info.lastInsertRowid);
+      
+      io.to("admin").emit("stats_update");
+      res.json(newUser);
+    } catch (err: any) {
+      if (err.message.includes("UNIQUE constraint failed")) {
+        res.status(400).json({ error: "Email already exists" });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  app.put("/api/profile", (req, res) => {
+    const { id, name, email, avatar, phone, address } = req.body;
+    try {
+      db.prepare("UPDATE users SET name = ?, email = ?, avatar = ?, phone = ?, address = ? WHERE id = ?")
+        .run(name, email, avatar, phone, address, id);
+      
+      const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
+      const { password, ...userWithoutPassword } = updatedUser;
+      
+      res.json(userWithoutPassword);
+    } catch (err: any) {
+      if (err.message.includes("UNIQUE constraint failed")) {
+        res.status(400).json({ error: "Email already exists" });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  app.post("/api/doctors", (req, res) => {
+    const { name, email, password, specialization, experience, avatar } = req.body;
+    
+    if (!name || !email || !password || !specialization || experience === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const info = db.prepare("INSERT INTO users (name, email, role, password, specialization, experience, avatar) VALUES (?, ?, 'doctor', ?, ?, ?, ?)")
+        .run(name, email, password, specialization, experience, avatar || `https://ui-avatars.com/api/?name=${name}`);
+      
+      io.to("admin").emit("stats_update");
+      res.json({ success: true, id: info.lastInsertRowid });
+    } catch (err: any) {
+      if (err.message.includes("UNIQUE constraint failed")) {
+        res.status(400).json({ error: "Email already exists" });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  app.put("/api/doctors/:id", (req, res) => {
+    const { id } = req.params;
+    const { name, email, specialization, experience, avatar } = req.body;
+    
+    try {
+      db.prepare("UPDATE users SET name = ?, email = ?, specialization = ?, experience = ?, avatar = ? WHERE id = ? AND role = 'doctor'")
+        .run(name, email, specialization, experience, avatar, id);
+      
+      io.to("admin").emit("stats_update");
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err.message.includes("UNIQUE constraint failed")) {
+        res.status(400).json({ error: "Email already exists" });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
   app.get("/api/doctors", (req, res) => {
-    const doctors = db.prepare("SELECT * FROM users WHERE role = 'doctor'").all();
+    const doctors = db.prepare("SELECT id, name, email, role, avatar, specialization, experience, rating, reviews_count FROM users WHERE role = 'doctor'").all();
     res.json(doctors);
   });
 
@@ -131,6 +214,7 @@ async function startServer() {
         FROM appointments a 
         JOIN users u ON a.doctor_id = u.id 
         WHERE a.patient_id = ?
+        ORDER BY a.date DESC, a.time DESC
       `).all(userId);
     } else if (role === 'doctor') {
       appointments = db.prepare(`
@@ -138,6 +222,7 @@ async function startServer() {
         FROM appointments a 
         JOIN users u ON a.patient_id = u.id 
         WHERE a.doctor_id = ?
+        ORDER BY a.date DESC, a.time DESC
       `).all(userId);
     } else {
       appointments = db.prepare(`
@@ -145,6 +230,7 @@ async function startServer() {
         FROM appointments a
         JOIN users p ON a.patient_id = p.id
         JOIN users d ON a.doctor_id = d.id
+        ORDER BY a.date DESC, a.time DESC
       `).all();
     }
     res.json(appointments);
@@ -167,6 +253,7 @@ async function startServer() {
     // Broadcast to doctor and admin
     io.to(`doctor_${doctor_id}`).emit("new_appointment", appointment);
     io.to("admin").emit("new_appointment", appointment);
+    io.to("admin").emit("stats_update");
     
     res.json({ id: newAppointmentId });
   });
@@ -180,10 +267,102 @@ async function startServer() {
     
     // Notify patient
     io.to(`patient_${appointment.patient_id}`).emit("appointment_updated", appointment);
+    // Notify doctor
+    io.to(`doctor_${appointment.doctor_id}`).emit("appointment_updated", appointment);
     // Notify admin
     io.to("admin").emit("appointment_updated", appointment);
+    io.to("admin").emit("stats_update");
 
     res.json({ success: true });
+  });
+
+  app.patch("/api/appointments/:id/medical", (req, res) => {
+    const { id } = req.params;
+    const { diagnosis, prescription } = req.body;
+    
+    try {
+      db.prepare("UPDATE appointments SET diagnosis = ?, prescription = ? WHERE id = ?").run(diagnosis, prescription, id);
+      const appointment = db.prepare("SELECT * FROM appointments WHERE id = ?").get(id) as any;
+      
+      io.to(`patient_${appointment.patient_id}`).emit("appointment_updated", appointment);
+      io.to(`doctor_${appointment.doctor_id}`).emit("appointment_updated", appointment);
+      io.to("admin").emit("appointment_updated", appointment);
+      
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update medical records" });
+    }
+  });
+
+  app.delete("/api/doctors/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("DELETE FROM users WHERE id = ? AND role = 'doctor'").run(id);
+      io.to("admin").emit("stats_update");
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete doctor" });
+    }
+  });
+
+  app.get("/api/doctors/schedule/:id", (req, res) => {
+    const { id } = req.params;
+    const schedule = db.prepare("SELECT * FROM doctor_schedules WHERE doctor_id = ?").all(id);
+    res.json(schedule);
+  });
+
+  app.post("/api/doctors/schedule", (req, res) => {
+    const { doctor_id, day_of_week, slots } = req.body;
+    
+    try {
+      db.transaction(() => {
+        // Clear existing slots for this day
+        db.prepare("DELETE FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?").run(doctor_id, day_of_week);
+        
+        // Insert new slots
+        const insert = db.prepare("INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time, is_available) VALUES (?, ?, ?, ?, ?)");
+        for (const slot of slots) {
+          insert.run(doctor_id, day_of_week, slot.start_time, slot.end_time, slot.is_available ? 1 : 0);
+        }
+      })();
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update schedule" });
+    }
+  });
+
+  app.get("/api/stats/detailed", (req, res) => {
+    const demographics = db.prepare(`
+      SELECT gender, 
+             CASE 
+               WHEN age < 18 THEN 'Under 18'
+               WHEN age BETWEEN 18 AND 35 THEN '18-35'
+               WHEN age BETWEEN 36 AND 55 THEN '36-55'
+               ELSE '55+'
+             END as age_group,
+             COUNT(*) as count
+      FROM users 
+      WHERE role = 'patient'
+      GROUP BY gender, age_group
+    `).all();
+
+    const deptTrends = db.prepare(`
+      SELECT d.specialization as department, COUNT(a.id) as count
+      FROM appointments a
+      JOIN users d ON a.doctor_id = d.id
+      GROUP BY department
+    `).all();
+
+    const doctorPerformance = db.prepare(`
+      SELECT name, specialization, rating, reviews_count,
+             (SELECT COUNT(*) FROM appointments WHERE doctor_id = users.id AND status = 'completed') as completed_appointments
+      FROM users
+      WHERE role = 'doctor'
+      ORDER BY rating DESC
+    `).all();
+
+    res.json({ demographics, deptTrends, doctorPerformance });
   });
 
   app.get("/api/stats", (req, res) => {

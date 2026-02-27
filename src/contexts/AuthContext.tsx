@@ -7,12 +7,15 @@ interface User {
   role: 'patient' | 'doctor' | 'admin';
   avatar?: string;
   specialization?: string;
+  phone?: string;
+  address?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   login: (user: User) => void;
   logout: () => void;
+  updateUser: (user: User) => void;
   isLoading: boolean;
 }
 
@@ -40,8 +43,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('medsync_user');
   };
 
+  const updateUser = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem('medsync_user', JSON.stringify(userData));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
