@@ -5,6 +5,9 @@ import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -137,9 +140,14 @@ async function startServer() {
       methods: ["GET", "POST"]
     }
   });
-  const PORT = 3001;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
+
+  // Health check for Render
+  app.get("/health", (req, res) => {
+    res.status(200).send("OK");
+  });
 
   // Socket.io Connection
   io.on("connection", (socket) => {
@@ -515,7 +523,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT} (0.0.0.0)`);
   });
 }
 
